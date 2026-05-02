@@ -1,71 +1,40 @@
-const { Telegraf, Markup } = require('telegraf'); // Tambahkan Markup di sini
+const { Telegraf } = require('telegraf');
 
-// MASUKKAN TOKEN KAMU DI SINI (Jangan hapus tanda kutipnya)
-const bot = new Telegraf('8691842273:AAFwL5qYcsKLnKLP2upjhVmSt7XWSVJU5kE'); 
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// 1. KETIK /START -> MUNCUL MENU
 bot.start((ctx) => {
-  ctx.reply(
-    "Halo Bos! Selamat datang di Bot Vercel 🚀\n\nSilakan pilih menu di bawah ini:",
-    // Ini kode untuk membuat tombol menu
-    Markup.keyboard([
-      ['📤 Upload File', '📂 Cek File'], // Baris pertama
-      ['🗑️ Hapus File', '🌐 Info Web']   // Baris kedua
-    ]).resize() // resize() berfungsi agar ukuran tombolnya pas dan rapi di layar HP
-  );
-});
-
-// 2. LOGIKA KETIKA TOMBOL MENU DIKLIK
-bot.hears('📤 Upload File', (ctx) => {
-  ctx.reply("Silakan langsung kirim file (Dokumen/PDF/Zip) ke chat ini. Nanti otomatis ditangkap!");
-});
-
-bot.hears('📂 Cek File', (ctx) => {
-  ctx.reply("Fitur Cek File: (Nanti kita sambungkan lagi ke database Vercel KV kalau test ini sukses!)");
-});
-
-bot.hears('🗑️ Hapus File', (ctx) => {
-  ctx.reply("Fitur Hapus File: (Segera hadir setelah database disambung)");
-});
-
-bot.hears('🌐 Info Web', (ctx) => {
-  ctx.reply("Bot ini berjalan 100% menggunakan Vercel Serverless! Sangat ringan dan gratis.");
-});
-
-// 3. LOGIKA KETIKA USER MENGIRIM FILE
-bot.on('document', (ctx) => {
-  ctx.reply("✅ Mantap, file berhasil ditangkap oleh Bot! (Mode test)");
-});
-
-// --- LOGIKA WEB & AUTO-SETUP ---
-module.exports = async (req, res) => {
-  const hostUrl = `https://${req.headers.host}`;
-
-  // Menerima tembakan pesan dari Telegram
-  if (req.method === 'POST') {
-    return await bot.handleUpdate(req.body, res);
-  }
-
-  // Tombol Setup
-  if (req.url.startsWith('/api/setup')) {
-    try {
-      await bot.telegram.setWebhook(hostUrl);
-      return res.send(`<h1 style="color:green; text-align:center; margin-top:50px; font-family:sans-serif;">✅ SETUP SUKSES! Buka Telegram dan ketik /start.</h1>`);
-    } catch (error) {
-      return res.send(`<h1 style="color:red; text-align:center; margin-top:50px; font-family:sans-serif;">❌ GAGAL! Pastikan token benar.</h1>`);
+  ctx.reply('Halo! Ini adalah menu utama. Silakan pilih:', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '➡️ Menu Selanjutnya', callback_data: 'menu_lanjut' },
+          { text: '❌ Tolak', callback_data: 'tolak' }
+        ]
+      ]
     }
-  }
+  });
+});
 
-  // Tampilan Web
-  res.setHeader('Content-Type', 'text/html');
-  res.status(200).send(`
-    <div style="text-align:center; margin-top:50px; font-family:sans-serif;">
-      <h1>Bot Menu Interaktif</h1>
-      <p>Klik tombol di bawah ini <b>SATU KALI SAJA</b> untuk menyambungkan Telegram ke Vercel.</p>
-      <br>
-      <a href="/api/setup" style="background:green; color:white; padding:15px 20px; text-decoration:none; border-radius:5px; font-weight:bold;">
-        🚀 KLIK INI UNTUK SETUP
-      </a>
-    </div>
-  `);
+bot.action('menu_lanjut', (ctx) => {
+  ctx.answerCbQuery();
+  ctx.reply('Ini adalah isi dari Menu Selanjutnya!');
+});
+
+bot.action('tolak', (ctx) => {
+  ctx.answerCbQuery();
+  ctx.reply('Kamu menolak. Ditunggu kedatangannya kembali!');
+});
+
+// Handler utama tanpa folder
+module.exports = async (req, res) => {
+  try {
+    if (req.method === 'POST') {
+      await bot.handleUpdate(req.body, res);
+    } else {
+      res.status(200).send('Bot berjalan sukses tanpa folder API!');
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Error');
+  }
 };
