@@ -1,8 +1,7 @@
 {
-  "name": "telegram-bot-vercel",
+  "name": "bot-telegram-langsung",
   "version": "1.0.0",
   "dependencies": {
-    "@vercel/kv": "^1.0.1",
-    "telegraf": "^4.15.3"
+    "telegraf": "^4.15.0"
   }
 }
