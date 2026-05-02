@@ -1,8 +1,8 @@
 const { Telegraf } = require('telegraf');
 const { kv } = require('@vercel/kv');
 
-// Mengambil token dari Environment Variables
-const bot = new Telegraf(process.env.BOT_TOKEN);
+// MASUKKAN TOKEN KAMU LANGSUNG DI SINI (jangan hapus tanda kutipnya)
+const bot = new Telegraf('8691842273:AAFwL5qYcsKLnKLP2upjhVmSt7XWSVJU5kE'); 
 
 // --- 1. LOGIKA BOT TELEGRAM ---
 bot.start((ctx) => ctx.reply("Halo! Bot sudah aktif dan langsung berjalan! 🚀 Silakan kirim file."));
@@ -21,25 +21,20 @@ bot.on('document', async (ctx) => {
 
 // --- 2. LOGIKA WEB DASHBOARD & AUTO-SETUP ---
 module.exports = async (req, res) => {
-  // Mengambil URL otomatis dari Vercel
   const hostUrl = `https://${req.headers.host}`;
 
-  // A. Jika menerima pesan dari Telegram
   if (req.method === 'POST') {
     return await bot.handleUpdate(req.body, res);
   }
 
-  // B. Fitur Hapus File
   if (req.url.startsWith('/api/delete')) {
     const name = new URL(req.url, hostUrl).searchParams.get('name');
     await kv.hdel('my_files', name);
     return res.redirect('/');
   }
 
-  // C. FITUR AUTO-SETUP WEBHOOK (Langsung Berjalan)
   if (req.url.startsWith('/api/setup')) {
     try {
-      // Menyuruh bot secara otomatis mendaftarkan link Vercel ini ke Telegram
       await bot.telegram.setWebhook(hostUrl);
       return res.send(`
         <div style="font-family:sans-serif; text-align:center; margin-top:50px;">
@@ -50,11 +45,10 @@ module.exports = async (req, res) => {
         </div>
       `);
     } catch (error) {
-      return res.send(`<h1 style="color:red;">❌ Gagal! Pastikan BOT_TOKEN di Vercel sudah benar.</h1>`);
+      return res.send(`<h1 style="color:red;">❌ Gagal! Pastikan Token kamu sudah benar di dalam kode.</h1>`);
     }
   }
 
-  // D. Tampilan Utama Website
   const files = await kv.hgetall('my_files') || {};
   const fileRows = Object.keys(files).map(name => `
     <tr>
@@ -82,11 +76,8 @@ module.exports = async (req, res) => {
     <body>
       <div class="container">
         <h1>🤖 Web Dashboard Bot</h1>
-        
         <a href="/api/setup" class="btn-setup">🚀 Klik Ini Untuk Mengaktifkan Bot</a>
-        
         <p style="color:#666; font-size:14px;">(Klik tombol di atas sekali saja setelah deploy)</p>
-
         <table>
           <thead>
             <tr style="background:#eee;">
