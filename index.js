@@ -1,99 +1,71 @@
-const { Telegraf } = require('telegraf');
-const { kv } = require('@vercel/kv');
+const { Telegraf, Markup } = require('telegraf'); // Tambahkan Markup di sini
 
-// MASUKKAN TOKEN KAMU LANGSUNG DI SINI (jangan hapus tanda kutipnya)
+// MASUKKAN TOKEN KAMU DI SINI (Jangan hapus tanda kutipnya)
 const bot = new Telegraf('8691842273:AAFwL5qYcsKLnKLP2upjhVmSt7XWSVJU5kE'); 
 
-// --- 1. LOGIKA BOT TELEGRAM ---
-bot.start((ctx) => ctx.reply("Halo! Bot sudah aktif dan langsung berjalan! 🚀 Silakan kirim file."));
-
-bot.on('document', async (ctx) => {
-  const fileId = ctx.message.document.file_id;
-  const fileName = ctx.message.document.file_name || `file_${Date.now()}`;
-  
-  try {
-    await kv.hset('my_files', { [fileName]: fileId });
-    ctx.reply(`✅ File "${fileName}" berhasil masuk ke Web Dashboard!`);
-  } catch (error) {
-    ctx.reply('❌ Gagal menyimpan file ke database.');
-  }
+// 1. KETIK /START -> MUNCUL MENU
+bot.start((ctx) => {
+  ctx.reply(
+    "Halo Bos! Selamat datang di Bot Vercel 🚀\n\nSilakan pilih menu di bawah ini:",
+    // Ini kode untuk membuat tombol menu
+    Markup.keyboard([
+      ['📤 Upload File', '📂 Cek File'], // Baris pertama
+      ['🗑️ Hapus File', '🌐 Info Web']   // Baris kedua
+    ]).resize() // resize() berfungsi agar ukuran tombolnya pas dan rapi di layar HP
+  );
 });
 
-// --- 2. LOGIKA WEB DASHBOARD & AUTO-SETUP ---
+// 2. LOGIKA KETIKA TOMBOL MENU DIKLIK
+bot.hears('📤 Upload File', (ctx) => {
+  ctx.reply("Silakan langsung kirim file (Dokumen/PDF/Zip) ke chat ini. Nanti otomatis ditangkap!");
+});
+
+bot.hears('📂 Cek File', (ctx) => {
+  ctx.reply("Fitur Cek File: (Nanti kita sambungkan lagi ke database Vercel KV kalau test ini sukses!)");
+});
+
+bot.hears('🗑️ Hapus File', (ctx) => {
+  ctx.reply("Fitur Hapus File: (Segera hadir setelah database disambung)");
+});
+
+bot.hears('🌐 Info Web', (ctx) => {
+  ctx.reply("Bot ini berjalan 100% menggunakan Vercel Serverless! Sangat ringan dan gratis.");
+});
+
+// 3. LOGIKA KETIKA USER MENGIRIM FILE
+bot.on('document', (ctx) => {
+  ctx.reply("✅ Mantap, file berhasil ditangkap oleh Bot! (Mode test)");
+});
+
+// --- LOGIKA WEB & AUTO-SETUP ---
 module.exports = async (req, res) => {
   const hostUrl = `https://${req.headers.host}`;
 
+  // Menerima tembakan pesan dari Telegram
   if (req.method === 'POST') {
     return await bot.handleUpdate(req.body, res);
   }
 
-  if (req.url.startsWith('/api/delete')) {
-    const name = new URL(req.url, hostUrl).searchParams.get('name');
-    await kv.hdel('my_files', name);
-    return res.redirect('/');
-  }
-
+  // Tombol Setup
   if (req.url.startsWith('/api/setup')) {
     try {
       await bot.telegram.setWebhook(hostUrl);
-      return res.send(`
-        <div style="font-family:sans-serif; text-align:center; margin-top:50px;">
-          <h1 style="color:green;">✅ Bot Berhasil Diaktifkan!</h1>
-          <p>Bot sudah terhubung ke <b>${hostUrl}</b>.</p>
-          <p>Silakan buka Telegram dan chat bot kamu sekarang.</p>
-          <a href="/" style="background:#0088cc; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Kembali ke Dashboard</a>
-        </div>
-      `);
+      return res.send(`<h1 style="color:green; text-align:center; margin-top:50px; font-family:sans-serif;">✅ SETUP SUKSES! Buka Telegram dan ketik /start.</h1>`);
     } catch (error) {
-      return res.send(`<h1 style="color:red;">❌ Gagal! Pastikan Token kamu sudah benar di dalam kode.</h1>`);
+      return res.send(`<h1 style="color:red; text-align:center; margin-top:50px; font-family:sans-serif;">❌ GAGAL! Pastikan token benar.</h1>`);
     }
   }
 
-  const files = await kv.hgetall('my_files') || {};
-  const fileRows = Object.keys(files).map(name => `
-    <tr>
-      <td style="padding:10px; border-bottom:1px solid #ddd;">${name}</td>
-      <td style="padding:10px; border-bottom:1px solid #ddd;">
-        <a href="/api/delete?name=${name}" style="color:red; text-decoration:none; font-weight:bold;">[Hapus]</a>
-      </td>
-    </tr>
-  `).join('');
-
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Bot Dashboard</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        body { font-family: sans-serif; padding: 20px; background: #f4f4f9; }
-        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
-        .btn-setup { background: #28a745; color: white; padding: 15px 20px; text-decoration: none; border-radius: 5px; display: inline-block; font-size: 18px; font-weight: bold; margin-bottom: 20px; box-shadow: 0 4px #1e7e34; transition: 0.2s;}
-        .btn-setup:active { transform: translateY(4px); box-shadow: 0 0 #1e7e34; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; text-align: left; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>🤖 Web Dashboard Bot</h1>
-        <a href="/api/setup" class="btn-setup">🚀 Klik Ini Untuk Mengaktifkan Bot</a>
-        <p style="color:#666; font-size:14px;">(Klik tombol di atas sekali saja setelah deploy)</p>
-        <table>
-          <thead>
-            <tr style="background:#eee;">
-              <th style="padding:10px;">Nama File Tersimpan</th>
-              <th style="padding:10px; width:80px;">Aksi</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${fileRows || '<tr><td colspan="2" style="text-align:center; padding:20px; color:#888;">Belum ada file yang di-upload ke Bot.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </body>
-    </html>
-  `;
-
+  // Tampilan Web
   res.setHeader('Content-Type', 'text/html');
-  res.status(200).send(html);
+  res.status(200).send(`
+    <div style="text-align:center; margin-top:50px; font-family:sans-serif;">
+      <h1>Bot Menu Interaktif</h1>
+      <p>Klik tombol di bawah ini <b>SATU KALI SAJA</b> untuk menyambungkan Telegram ke Vercel.</p>
+      <br>
+      <a href="/api/setup" style="background:green; color:white; padding:15px 20px; text-decoration:none; border-radius:5px; font-weight:bold;">
+        🚀 KLIK INI UNTUK SETUP
+      </a>
+    </div>
+  `);
 };
