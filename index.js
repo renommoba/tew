@@ -5,7 +5,7 @@ const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const proxyAgent = new HttpsProxyAgent('http://8998c0d8430265a3c9ab:6b2739b4b177724e@gw.dataimpulse.com:823');
+const proxyAgent = new HttpsProxyAgent('http://8998c0d8430265a3c9ab:f4cd725960d1892a@gw.dataimpulse.com:823');
 
 // ==========================================
 // FUNGSI INTI PENGECEKAN API
