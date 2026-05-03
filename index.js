@@ -1,4 +1,4 @@
-Process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
@@ -8,7 +8,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const proxyAgent = new HttpsProxyAgent('http://8998c0d8430265a3c9ab:6b2739b4b177724e@gw.dataimpulse.com:823');
 
 // ==========================================
-// FUNGSI INTI PENGECEKAN API (Bisa dipakai berulang)
+// FUNGSI INTI PENGECEKAN API
 // ==========================================
 async function checkAccount(username, password) {
   try {
@@ -67,9 +67,8 @@ bot.start((ctx) => {
 bot.command('codashop', async (ctx) => {
   const args = ctx.message.text.split(' ');
   
-  // Memberikan keterangan jelas jika format salah atau hanya mengetik /codashop
   if (args.length < 2) {
-    return ctx.reply('❌ <b>Format Salah!</b>\n\nUntuk cek satuan silakan gunakan format:\n<code>/codashop username:password</code>\n\nAtau jika ingin cek secara massal, <b>kamu cukup langsung upload file .txt</b> ke chat ini. Bot akan otomatis memprosesnya!', { parse_mode: 'HTML' });
+    return ctx.reply('❌ <b>Format Salah!</b>\n\nUntuk cek satuan silakan gunakan format:\n<code>/codashop username:password</code>\n\nAtau jika ingin cek secara massal, <b>kamu cukup langsung upload file .txt</b> ke chat ini.', { parse_mode: 'HTML' });
   }
 
   const combo = args[1].replace(/[|;\s]/g, ':').split(':');
@@ -97,17 +96,16 @@ bot.command('codashop', async (ctx) => {
 });
 
 // ==========================================
-// HANDLER: UPLOAD FILE .TXT (Mass Check Otomatis)
+// HANDLER: UPLOAD FILE .TXT (Mass Check Maksimal Vercel)
 // ==========================================
 bot.on('document', async (ctx) => {
   const doc = ctx.message.document;
   
-  // Validasi file harus .txt
   if (!doc.file_name.endsWith('.txt')) {
     return ctx.reply('❌ Mohon kirim file dengan format .txt yang berisi list combo.');
   }
 
-  const loadingMsg = await ctx.reply('📥 <i>File diterima! Mengunduh dan memulai Mass Check... (Max 30 data)</i>', { parse_mode: 'HTML' });
+  const loadingMsg = await ctx.reply('📥 <i>File diterima! Mengunduh dan memulai Mass Check... (Maksimal 100 data per file)</i>', { parse_mode: 'HTML' });
 
   try {
     const fileLink = await ctx.telegram.getFileLink(doc.file_id);
@@ -119,7 +117,8 @@ bot.on('document', async (ctx) => {
       return ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Tidak ada format combo yang valid di dalam file.');
     }
 
-    const maxLines = lines.slice(0, 100000);
+    // Menaikkan limit menjadi 100 (Batas aman sebelum Vercel 10s Timeout)
+    const maxLines = lines.slice(0, 100);
     let liveResult = '';
     let liveCount = 0;
     let dieCount = 0;
@@ -148,7 +147,12 @@ bot.on('document', async (ctx) => {
 
     let finalMsg = `<b>✅ REKAP MASS CHECKING</b>\n━━━━━━━━━━━━━━━━━━\n`;
     if (liveCount > 0) {
-      finalMsg += liveResult;
+      // Pelindung Limit Telegram agar tidak error jika jumlah Live sangat banyak
+      if (liveResult.length > 3000) {
+        finalMsg += liveResult.substring(0, 3000) + `\n... <i>(Hasil dipotong karena limit teks)</i>\n`;
+      } else {
+        finalMsg += liveResult;
+      }
     } else {
       finalMsg += `<i>Tidak ada akun yang Live.</i>\n`;
     }
@@ -158,7 +162,7 @@ bot.on('document', async (ctx) => {
 
   } catch (error) {
     console.error(error);
-    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Gagal memproses file. Pastikan file tidak terlalu besar.');
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Gagal memproses file. Timeout Vercel atau ukuran file terlalu besar.');
   }
 });
 
@@ -176,6 +180,3 @@ module.exports = async (req, res) => {
     res.status(500).send('Terjadi kesalahan pada server');
   }
 };
-
-
-
