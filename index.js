@@ -5,10 +5,10 @@ const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const proxyAgent = new HttpsProxyAgent('http://8998c0d8430265a3c9ab:6b2739b4b177724e@gw.dataimpulse.com:823');
+const proxyAgent = new HttpsProxyAgent('http://djHOV4rvR19ogznQ:SMM9r2QbLkUDQLpK@geo.floppydata.com:10080');
 
 // ==========================================
-// FUNGSI INTI PENGECEKAN API
+// FUNGSI INTI PENGECEKAN API (Bisa dipakai berulang)
 // ==========================================
 async function checkAccount(username, password) {
   try {
@@ -61,12 +61,16 @@ async function checkAccount(username, password) {
 // HANDLER: /START & /CODASHOP (Satuan)
 // ==========================================
 bot.start((ctx) => {
-  ctx.reply('Halo! RecnomPay CodaShop Checker siap.\n\n- Cek Satuan: /codashop email:pass\n- Cek Massal: Langsung kirim file .txt ke bot ini.');
+  ctx.reply('Halo! RecnomPay CodaShop Checker siap.\n\n🔹 Cek Satuan: Ketik /codashop email:pass\n🔹 Cek Massal: Langsung kirim/upload file .txt ke bot ini.');
 });
 
 bot.command('codashop', async (ctx) => {
   const args = ctx.message.text.split(' ');
-  if (args.length < 2) return ctx.reply('❌ Format Salah!\nGunakan: /codashop username:password');
+  
+  // Memberikan keterangan jelas jika format salah atau hanya mengetik /codashop
+  if (args.length < 2) {
+    return ctx.reply('❌ <b>Format Salah!</b>\n\nUntuk cek satuan silakan gunakan format:\n<code>/codashop username:password</code>\n\nAtau jika ingin cek secara massal, <b>kamu cukup langsung upload file .txt</b> ke chat ini. Bot akan otomatis memprosesnya!', { parse_mode: 'HTML' });
+  }
 
   const combo = args[1].replace(/[|;\s]/g, ':').split(':');
   if (combo.length < 2) return ctx.reply('❌ Format Salah!\nGunakan: /codashop username:password');
@@ -93,55 +97,26 @@ bot.command('codashop', async (ctx) => {
 });
 
 // ==========================================
-// HANDLER: UPLOAD FILE .TXT
+// HANDLER: UPLOAD FILE .TXT (Mass Check Otomatis)
 // ==========================================
 bot.on('document', async (ctx) => {
   const doc = ctx.message.document;
   
+  // Validasi file harus .txt
   if (!doc.file_name.endsWith('.txt')) {
     return ctx.reply('❌ Mohon kirim file dengan format .txt yang berisi list combo.');
   }
 
-  // Balas pesan file tersebut dengan tombol agar nanti kita bisa melacaknya kembali
-  ctx.reply(`📄 File <b>${doc.file_name}</b> diterima!\n\nSilakan klik tombol di bawah untuk memulai pengecekan (Max 30 baris).`, {
-    parse_mode: 'HTML',
-    reply_to_message_id: ctx.message.message_id, // Penting: me-reply file aslinya
-    reply_markup: {
-      inline_keyboard: [
-        [
-          // Callback datanya sekarang pendek dan statis
-          { text: '▶️ Mulai Mass Check', callback_data: 'start_mass_check' }
-        ]
-      ]
-    }
-  });
-});
-
-// ==========================================
-// HANDLER: ACTION BUTTON (Mulai Mass Check)
-// ==========================================
-bot.action('start_mass_check', async (ctx) => {
-  await ctx.answerCbQuery('Memulai pengecekan massal...');
-
-  // Cari pesan aslinya (file) dari riwayat reply
-  const originalMessage = ctx.callbackQuery.message.reply_to_message;
-  
-  if (!originalMessage || !originalMessage.document) {
-    return ctx.editMessageText('❌ File tidak ditemukan. Silakan kirim ulang file txt-nya.');
-  }
-
-  const fileId = originalMessage.document.file_id;
-
-  await ctx.editMessageText('📥 <i>Mengunduh file dan memproses data... Mohon tunggu.</i>', { parse_mode: 'HTML' });
+  const loadingMsg = await ctx.reply('📥 <i>File diterima! Mengunduh dan memulai Mass Check... (Max 30 data)</i>', { parse_mode: 'HTML' });
 
   try {
-    const fileLink = await ctx.telegram.getFileLink(fileId);
+    const fileLink = await ctx.telegram.getFileLink(doc.file_id);
     const response = await axios.get(fileLink.href);
     const textData = response.data;
 
     const lines = textData.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
     if (lines.length === 0) {
-      return ctx.editMessageText('❌ Tidak ada format combo yang valid di dalam file.');
+      return ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Tidak ada format combo yang valid di dalam file.');
     }
 
     const maxLines = lines.slice(0, 30);
@@ -179,11 +154,11 @@ bot.action('start_mass_check', async (ctx) => {
     }
     finalMsg += `━━━━━━━━━━━━━━━━━━\n📈 <b>Statistik:</b>\nTotal Diproses: ${maxLines.length}\nLive: ${liveCount} | Die/Error: ${dieCount}\n🤖 <i>RecnomPay Checker Selesai</i>`;
 
-    await ctx.editMessageText(finalMsg, { parse_mode: 'HTML' });
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, finalMsg, { parse_mode: 'HTML' });
 
   } catch (error) {
     console.error(error);
-    await ctx.editMessageText('❌ Gagal memproses file. Pastikan file tidak terlalu besar atau proxy sedang sibuk.');
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Gagal memproses file. Pastikan file tidak terlalu besar.');
   }
 });
 
