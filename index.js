@@ -118,7 +118,7 @@ bot.on('document', async (ctx) => {
     }
 
     // Limit ketat di angka 30 agar stabil di Vercel
-    const maxLines = lines.slice(0, 30);
+    const maxLines = lines.slice(0, 100000);
     let liveResult = '';
     let liveCount = 0;
     let dieCount = 0;
