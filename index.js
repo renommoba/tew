@@ -43,7 +43,7 @@ async function checkAccount(username, password) {
         },
         httpsAgent: proxyAgent,
         validateStatus: () => true,
-        timeout: 100000
+        timeout: 10000
       });
 
       const balance = walletReq.data?.data?.balanceAmount || 0;
