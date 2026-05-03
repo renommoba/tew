@@ -93,7 +93,7 @@ bot.command('codashop', async (ctx) => {
 });
 
 // ==========================================
-// HANDLER: UPLOAD FILE .TXT (Menyiapkan Mass Check)
+// HANDLER: UPLOAD FILE .TXT
 // ==========================================
 bot.on('document', async (ctx) => {
   const doc = ctx.message.document;
@@ -102,14 +102,15 @@ bot.on('document', async (ctx) => {
     return ctx.reply('❌ Mohon kirim file dengan format .txt yang berisi list combo.');
   }
 
-  // File ID disimpan di callback data tombol agar nanti bisa didownload saat tombol diklik
+  // Balas pesan file tersebut dengan tombol agar nanti kita bisa melacaknya kembali
   ctx.reply(`📄 File <b>${doc.file_name}</b> diterima!\n\nSilakan klik tombol di bawah untuk memulai pengecekan (Max 30 baris).`, {
     parse_mode: 'HTML',
+    reply_to_message_id: ctx.message.message_id, // Penting: me-reply file aslinya
     reply_markup: {
       inline_keyboard: [
         [
-          // Kita kirimkan file_id di dalam callback_data
-          { text: '▶️ Mulai Mass Check', callback_data: `start_mass_${doc.file_id}` }
+          // Callback datanya sekarang pendek dan statis
+          { text: '▶️ Mulai Mass Check', callback_data: 'start_mass_check' }
         ]
       ]
     }
@@ -117,25 +118,27 @@ bot.on('document', async (ctx) => {
 });
 
 // ==========================================
-// HANDLER: ACTION BUTTON (Memulai Mass Check)
+// HANDLER: ACTION BUTTON (Mulai Mass Check)
 // ==========================================
-// Regex ini menangkap callback_data yang dimulai dengan 'start_mass_'
-bot.action(/start_mass_(.+)/, async (ctx) => {
-  const fileId = ctx.match[1]; // Mengambil file_id dari regex match
-  
-  // Hilangkan loading di tombol Telegram
+bot.action('start_mass_check', async (ctx) => {
   await ctx.answerCbQuery('Memulai pengecekan massal...');
 
-  // Edit pesan tombol menjadi pesan loading
+  // Cari pesan aslinya (file) dari riwayat reply
+  const originalMessage = ctx.callbackQuery.message.reply_to_message;
+  
+  if (!originalMessage || !originalMessage.document) {
+    return ctx.editMessageText('❌ File tidak ditemukan. Silakan kirim ulang file txt-nya.');
+  }
+
+  const fileId = originalMessage.document.file_id;
+
   await ctx.editMessageText('📥 <i>Mengunduh file dan memproses data... Mohon tunggu.</i>', { parse_mode: 'HTML' });
 
   try {
-    // Download isi file menggunakan file_id yang didapat dari tombol
     const fileLink = await ctx.telegram.getFileLink(fileId);
     const response = await axios.get(fileLink.href);
     const textData = response.data;
 
-    // Filter baris
     const lines = textData.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
     if (lines.length === 0) {
       return ctx.editMessageText('❌ Tidak ada format combo yang valid di dalam file.');
@@ -146,7 +149,6 @@ bot.action(/start_mass_(.+)/, async (ctx) => {
     let liveCount = 0;
     let dieCount = 0;
 
-    // Proses pengecekan paralel
     const checkPromises = maxLines.map(async (line) => {
       const combo = line.replace(/[|;\s]/g, ':').split(':');
       if (combo.length >= 2) {
@@ -160,7 +162,6 @@ bot.action(/start_mass_(.+)/, async (ctx) => {
 
     const results = await Promise.all(checkPromises);
 
-    // Rekap
     results.forEach(item => {
       if (item && item.res.status === 'live') {
         liveCount++;
@@ -178,12 +179,11 @@ bot.action(/start_mass_(.+)/, async (ctx) => {
     }
     finalMsg += `━━━━━━━━━━━━━━━━━━\n📈 <b>Statistik:</b>\nTotal Diproses: ${maxLines.length}\nLive: ${liveCount} | Die/Error: ${dieCount}\n🤖 <i>RecnomPay Checker Selesai</i>`;
 
-    // Tampilkan hasil akhir
     await ctx.editMessageText(finalMsg, { parse_mode: 'HTML' });
 
   } catch (error) {
     console.error(error);
-    await ctx.editMessageText('❌ Gagal memproses file. Pastikan file tidak terlalu besar.');
+    await ctx.editMessageText('❌ Gagal memproses file. Pastikan file tidak terlalu besar atau proxy sedang sibuk.');
   }
 });
 
